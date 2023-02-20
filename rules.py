@@ -9,7 +9,8 @@ import subprocess
 import os
 import signal
 from jinja2 import Environment, FileSystemLoader
-
+import numpy as np
+import logging
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -17,7 +18,6 @@ config.read('config.ini')
 
 class master:
     def __init__(self):
-
         self.rules = rules()
         self.comms = redis.Redis(host=self.rules.host, port=self.rules.port,
                                  db=self.rules.db, decode_responses=True)
@@ -32,11 +32,13 @@ class master:
         print(json.loads(raw_message["data"]))
 
     def evaluate_rule(self, tf_script):
+        runner_uuid = "runner_"+str(uuid.uuid4())
         self.comms.publish(self.sending_topic, json.dumps({
-                           "command": "start_runner", "script": tf_script}))
+                           "command": "start_runner", "data": {"uuid": runner_uuid, "script": tf_script}}))
 
 
 class rules:
+
     def __init__(self):
         self.user = "andre"
         if config["Generic"]["db_engine"] == "MariaDB":
@@ -53,8 +55,21 @@ class rules:
 
         self.mycursor = self.mydb.cursor()
 
-    def build_tf_script(self, input_data, config_data, rule, template_file=config["Templates"]["default_template"], template_folder=config["Templates"]["default_folder"]):
+    def check_rule_input(self, json_string):
+        try:
+            c = json.loads(json_string)
+        except ValueError as err:
+            raise ValueError("Invalid JSON")
+        if isinstance(c, list):
+            is_list = True
+        else:
+            raise ValueError("Not a valid JSON list")
 
+    def build_tf_script(self, input_data, config_data, rule, template_file=config["Templates"]["default_template"], template_folder=config["Templates"]["default_folder"]):
+        try:
+            self.check_rule_input(input_data)
+        except:
+            raise
         environment = Environment(loader=FileSystemLoader(
             template_folder + "/"))
         template = environment.get_template(template_file)
@@ -72,7 +87,7 @@ class rules:
     def read_excel(self, filename, sheetname="Sheet1"):
         try:
             sheetdata = pd.read_excel(
-                filename, sheet_name=sheetname,  parse_dates=True)
+                filename, sheet_name=sheetname,  parse_dates=True).replace({np.nan: None})
             s2 = sheetdata.to_dict("records")
             # print(s2)
         except:

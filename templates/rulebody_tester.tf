@@ -2,14 +2,46 @@ import core, data, strings, time, math, fun, locale, regex, bin, decimals from '
 import json from 'tweakstreet/json';
 
 library d {
-    input_json: '{{input_data}}';
-    config_json: '{{config_data}}';
-
+    input_json: '[
+  {
+    "input": "a"
+  },
+  {
+    "input": "b"
+  },
+  {
+    "input": "c"
+  },
+  {
+    "input": "d"
+  },
+  {
+    "input": "e"
+  }
+]';
+    config_json: '[
+  {
+    "config": "config_a",
+    "value": "a"
+  },
+  {
+    "config": "config_b",
+    "value": "b"
+  },
+  {
+    "config": "config_bb",
+    "value": "bb"
+  },
+  {
+    "config": "config_c",
+    "value": "c"
+  }
+]';
     input: json.parse(input_json);
     
     config: json.parse(config_json);
     
-    is_config_match: (input, config) -> {{rule}} ;# input[:input] == config[:value] || strings.starts_with?(config[:value], input[:input]);
+    is_config_match: (input, config) -> input[:input] == config[:value] || strings.starts_with?(config[:value], input[:input]);
     
     get_configs: (x) -> data.filter(config, (c) -> is_config_match(x, c));
     

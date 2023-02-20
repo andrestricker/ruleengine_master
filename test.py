@@ -14,10 +14,16 @@ pubsub.run_in_thread(sleep_time=.01)
 
 ru = rr.read_rule("9b7749b0-98be-4a0e-9858-945442e5b32d")
 
-# print(ru[0]["rules"])
-# print(ru[0]["config"])
+#print(ru[0]["config"])
 
-tf_script = rr.build_tf_script({"tour": "A"}, ru[0]["config"], ru[0]["rules"])
-# print(tf_script)
+#print(ru[0]["rules"])
 
-r.evaluate_rule(tf_script)
+try: 
+    tf_script = rr.build_tf_script('[{"tour": "A"}, {"tour": "DMS"},{"tour": "GFM"}]', ru[0]["config"], ru[0]["rules"])
+except Exception as e:
+    print(str(e))
+else:     
+    r.evaluate_rule(tf_script)
+
+#print(tf_script)
+
