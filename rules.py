@@ -26,8 +26,6 @@ class master:
         self.receiving_topic = "to_master_from_watchdog"
         self.watchdog_list = []
 
-    # def launch_runner(self, uuid):
-
     def event_handler(self, raw_message):
         print(json.loads(raw_message["data"]))
 
