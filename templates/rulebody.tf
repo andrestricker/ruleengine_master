@@ -9,7 +9,7 @@ library d {
     
     config: json.parse(config_json);
     
-    is_config_match: (input, config) -> {{rule}} ;# input[:input] == config[:value] || strings.starts_with?(config[:value], input[:input]);
+    is_config_match: (input, config) -> {{rule}} ;
     
     get_configs: (x) -> data.filter(config, (c) -> is_config_match(x, c));
     
