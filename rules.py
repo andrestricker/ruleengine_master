@@ -12,6 +12,7 @@ from jinja2 import Environment, FileSystemLoader
 import numpy as np
 import logging
 from dataclasses import dataclass
+from ldap3 import Server, Connection, ALL
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -26,8 +27,78 @@ class Message:
     last_seen: float
 
 
+class returndata:
+    def __init(self):
+        pass
+
+    def build_returndata(self, payload):
+        return {"time": time.time(), "payload": payload}
+
+
+class user:
+    def __init__(self):
+        self.username = ""
+        self.token = ""
+        self.expires = 0
+
+    def authenticate(self, username, password):
+        s = Server(config["LDAP"]["server"], port=int(config[
+                   "LDAP"]["port"]), get_info=ALL)
+        c = Connection(s, user="cn="+username+"," +
+                       config["LDAP"]["dn_suffix"], password=password)
+        if c.bind():
+            self.username = username
+            self.token = self.build_token()
+            self.expires = time.time() + \
+                int(config["Auth"]["token_expiry_seconds"])
+            r = returndata.build_returndata(returndata, {
+                                            "username": self.username, "token": self.token, "token_expires": self.expires})
+            return r
+
+    def build_token(self):
+        return str(uuid.uuid4())
+
+    def is_in_group(self, groupname):
+
+        pass
+
+
+class system:
+    def __init__(self):
+        pass
+
+    def selftest(self):
+        res = {}
+        res["redis_connection"] = self.selftest_redis()
+        res["mysql_connection"] = self.selftest_mysql()
+        return res
+
+    def selftest_redis(self):
+        try:
+            self.comms.ping()
+        except:
+            return False
+
+        return True
+
+    def selftest_mysql(self):
+        if config["Generic"]["db_engine"] == "MariaDB":
+            try:
+                self.mydb = mariadb.connect(
+                    host=config["DB"]["host"],
+                    user=config["DB"]["user"],
+                    password=config["DB"]["password"],
+                    database=config["DB"]["database"]
+                )
+            except:
+                return False
+
+        return True
+
+
 class master:
     def __init__(self):
+
         self.rules = rules()
         self.comms = redis.Redis(host=self.rules.host, port=self.rules.port,
                                  db=self.rules.db, decode_responses=True)
@@ -62,14 +133,15 @@ class master:
 
     def test_rule(self, id):
         results = []
-        sql = "SELECT * FROM rule_tests where is_valid=1 and is_deleted=0"
+        rule_exit_code = 0
+        sql = "SELECT * FROM rule_tests where is_valid=1 and is_deleted=0 and rule_uuid='"+id+"'"
         self.rules.mycursor.execute(sql)
 
         res = [dict((self.rules.mycursor.description[i][0], value)
                     for i, value in enumerate(row)) for row in self.rules.mycursor.fetchall()]
-
+        if len(res) == 0:
+            rule_exit_code = 1
         for test in res:
-            print(test["input_data"])
             expected_output = json.loads(test["expected_output"])
             input_data = json.loads(test["input_data"])
             res2 = self.execute_rule(id, input_data)
@@ -78,10 +150,14 @@ class master:
             results.append({"input": input_data, "expected_result": expected_output,
                            "actual_result": result, "passed": result == expected_output})
 
-        return results
+        res = {"rule_exit_code": rule_exit_code, "results": results}
+        return res
 
     def execute_rule(self, id, data):
-        ru = self.rules.read_rule(id)
+        try:
+            ru = self.rules.read_rule(id)
+        except Exception as e:
+            return(str(e))
         time.sleep(1)
         try:
             tf_script = self.rules.build_tf_script(
@@ -206,7 +282,8 @@ class rules:
 
         res = [dict((self.mycursor.description[i][0], value)
                     for i, value in enumerate(row)) for row in self.mycursor.fetchall()]
-
+        if len(res) == 0:
+            raise ValueError('Rule UUID does not exist')
         return res[0]
 
     def set_rule_valid_flag(self, uuid, flag):
