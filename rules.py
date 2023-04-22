@@ -72,8 +72,16 @@ class system:
         self.comms = redis.Redis(host=self.rules.host, port=self.rules.port,
                                  db=self.rules.db, decode_responses=True)
 
-    def selftest(self):
+        self.mydb = mariadb.connect(
+            host=config["DB"]["host"],
+            user=config["DB"]["user"],
+            password=config["DB"]["password"],
+            database=config["DB"]["database"]
+        )
+
+    def selftest(self, watchdog_list):
         res = {}
+        res["watchdogs"] = watchdog_list
         res["redis_connection"] = self.selftest_redis()
         res["mysql_connection"] = self.selftest_mysql()
         res["system"] = self.get_system_status()
@@ -213,8 +221,18 @@ class master:
         self.comms = redis.Redis(host=self.rules.host, port=self.rules.port,
                                  db=self.rules.db, decode_responses=True)
 
+        self.mydb = mariadb.connect(
+            host=config["DB"]["host"],
+            user=config["DB"]["user"],
+            password=config["DB"]["password"],
+            database=config["DB"]["database"]
+        )
+
         self.receiving_topic = "to_master_from_watchdog"
         self.watchdog_list = []
+        self.mydb.autocommit = True
+        self.mycursor = self.mydb.cursor()
+        self.user = "11111"
 
     def event_handler(self, raw_message):
 
@@ -226,20 +244,38 @@ class master:
                 msg.sender_id, msg.payload["runners"], msg.last_seen)
 
     def set_watchdog_state(self, id, runners, last_seen):
-        try:
-            c = self.get_watchdog_index(id)
-        except ValueError:
-            self.watchdog_list.append(
-                {"id": id, "runners": runners, "last_seen": last_seen})
-        else:
-            self.watchdog_list[c]["id"] = id
-            self.watchdog_list[c]["runners"] = runners
+        sql = "REPLACE INTO watchdogs (uuid,  last_seen, last_modified_user_uuid) VALUES (%s,%s,%s)"
+        val = (id, last_seen, self.user)
 
-    def get_watchdog_index(self, id):
-        for c, watchdog in enumerate(self.watchdog_list):
-            if watchdog["id"] == id:
-                return c
-        raise ValueError("Watchdog not found")
+        self.mycursor.execute(sql, val)
+        self.mydb.commit()
+
+        sql = "DELETE FROM runners WHERE watchdog_uuid='"+id+"'"
+
+        self.mycursor.execute(sql)
+        self.mydb.commit()
+
+        for runner in runners:
+            sql = "REPLACE INTO runners (uuid, watchdog_uuid, pid, last_seen, state, payload, last_modified_user_uuid) VALUES (%s,%s,%s,%s,%s,%s,%s)"
+            val = (runner["id"], id, runner["pid"],
+                   runner["last_seen"], runner["state"], json.dumps(runner["payload"]), self.user)
+            self.mycursor.execute(sql, val)
+            self.mydb.commit()
+
+        # try:
+        #    c = self.get_watchdog_index(id)
+        # except ValueError:
+        #    self.watchdog_list.append(
+        #        {"id": id, "runners": runners, "last_seen": last_seen})
+        # else:
+        #    self.watchdog_list[c]["id"] = id
+        #    self.watchdog_list[c]["runners"] = runners
+
+    # def get_watchdog_index(self, id):
+    #    for c, watchdog in enumerate(self.watchdog_list):
+    #        if watchdog["id"] == id:
+    #            return c
+    #    raise ValueError("Watchdog not found")
 
     def test_rule(self, id):
         results = []

@@ -23,7 +23,7 @@ security = HTTPBasic()
 
 @app.get("/sys/selftest")
 async def selftest():
-    return sys.selftest()
+    return sys.selftest(r.watchdog_list)
 
 
 @app.get("/auth/")
