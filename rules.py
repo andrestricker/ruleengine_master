@@ -79,13 +79,33 @@ class system:
             database=config["DB"]["database"]
         )
 
-    def selftest(self, watchdog_list):
+    def selftest(self):
         res = {}
-        res["watchdogs"] = watchdog_list
+        res["watchdogs"] = self.selftest_watchdog_list()
         res["redis_connection"] = self.selftest_redis()
         res["mysql_connection"] = self.selftest_mysql()
         res["system"] = self.get_system_status()
         return res
+
+    def selftest_watchdog_list(self):
+        results = []
+        sql = "SELECT * FROM watchdogs"
+        self.rules.mycursor.execute(sql)
+
+        watchdogs = [dict((self.rules.mycursor.description[i][0], value)
+                          for i, value in enumerate(row)) for row in self.rules.mycursor.fetchall()]
+        if len(watchdogs) == 0:
+            return []
+        for watchdog in watchdogs:
+            sql = "SELECT * FROM runners"
+            self.rules.mycursor.execute(sql)
+
+            runners = [dict((self.rules.mycursor.description[i][0], value)
+                            for i, value in enumerate(row)) for row in self.rules.mycursor.fetchall()]
+            watchdog["runners"] = runners
+            results.append(watchdog)
+
+        return results
 
     def selftest_redis(self):
         try:
@@ -229,7 +249,7 @@ class master:
         )
 
         self.receiving_topic = "to_master_from_watchdog"
-        self.watchdog_list = []
+        #self.watchdog_list = []
         self.mydb.autocommit = True
         self.mycursor = self.mydb.cursor()
         self.user = "11111"
@@ -237,11 +257,14 @@ class master:
     def event_handler(self, raw_message):
 
         msg_obj = json.loads(raw_message["data"])
+        print(msg_obj)
         msg = self.parse_message(msg_obj)
 
         if msg.sendertype == "watchdog":
-            self.set_watchdog_state(
-                msg.sender_id, msg.payload["runners"], msg.last_seen)
+            print("-----", msg.payload)
+            if "runners" in msg.payload:
+                self.set_watchdog_state(
+                    msg.sender_id, msg.payload["runners"], msg.last_seen)
 
     def set_watchdog_state(self, id, runners, last_seen):
         sql = "REPLACE INTO watchdogs (uuid,  last_seen, last_modified_user_uuid) VALUES (%s,%s,%s)"
@@ -256,12 +279,11 @@ class master:
         self.mydb.commit()
 
         for runner in runners:
-            sql = "REPLACE INTO runners (uuid, watchdog_uuid, pid, last_seen, state, payload, last_modified_user_uuid) VALUES (%s,%s,%s,%s,%s,%s,%s)"
+            sql = "INSERT INTO runners (uuid, watchdog_uuid, pid, last_seen, state, payload, last_modified_user_uuid) VALUES (%s,%s,%s,%s,%s,%s,%s)"
             val = (runner["id"], id, runner["pid"],
                    runner["last_seen"], runner["state"], json.dumps(runner["payload"]), self.user)
             self.mycursor.execute(sql, val)
             self.mydb.commit()
-
         # try:
         #    c = self.get_watchdog_index(id)
         # except ValueError:
@@ -329,20 +351,44 @@ class master:
         return runner_uuid
 
     def get_result(self, runner_id):
-        for watchdog in self.watchdog_list:
-            for runner in watchdog["runners"]:
-                if runner["state"] == "finished" and runner["payload"]["rule_exit_code"] == 0 and runner["id"] == runner_id:
-                    return runner  # ["payload"]["rule_result"]
-        return False
+        result = {}
+        sql = "SELECT * from runners where uuid='" + \
+            runner_id+"' and state ='finished'"
+        self.rules.mycursor.execute(sql)
+
+        res = [dict((self.rules.mycursor.description[i][0], value)
+                    for i, value in enumerate(row)) for row in self.rules.mycursor.fetchall()]
+        if len(res) == 0:
+            return False
+        result["uuid"] = res[0]["uuid"]
+        result["watchdog_uuid"] = res[0]["watchdog_uuid"]
+        result["pid"] = res[0]["pid"]
+        result["last_seen"] = res[0]["last_seen"]
+        result["state"] = res[0]["state"]
+        result["payload"] = json.loads(res[0]["payload"])
+
+        return result
 
     def choose_watchdog(self):
-        min_runners = 10000
-        min_runners_id = ""
-        for watchdog in self.watchdog_list:
-            if len(watchdog["runners"]) < min_runners:
-                min_runners = len(watchdog["runners"])
-                min_runners_id = watchdog["id"]
-        return min_runners_id
+
+        #results = []
+        #rule_exit_code = 0
+        sql = "SELECT watchdogs.uuid FROM  watchdogs LEFT OUTER JOIN runners ON watchdogs.uuid=runners.watchdog_uuid ORDER BY COUNT( DISTINCT runners.uuid) DESC LIMIT 1"
+        self.rules.mycursor.execute(sql)
+
+        res = [dict((self.rules.mycursor.description[i][0], value)
+                    for i, value in enumerate(row)) for row in self.rules.mycursor.fetchall()]
+        if len(res) == 0:
+            rule_exit_code = 1
+        return res[0]["uuid"]
+
+        #min_runners = 10000
+        #min_runners_id = ""
+        # for watchdog in self.watchdog_list:
+        #    if len(watchdog["runners"]) < min_runners:
+        #        min_runners = len(watchdog["runners"])
+        #        min_runners_id = watchdog["id"]
+        # return min_runners_id
 
     def parse_message(self, msg_obj):
         msg = Message(sender_id=msg_obj["sender"]["id"],
