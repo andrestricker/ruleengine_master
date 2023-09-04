@@ -257,12 +257,13 @@ class master:
     def event_handler(self, raw_message):
 
         msg_obj = json.loads(raw_message["data"])
-        print(msg_obj)
+        #print("++++", msg_obj)
         msg = self.parse_message(msg_obj)
 
         if msg.sendertype == "watchdog":
-            print("-----", msg.payload)
+            #print("-----", msg.payload)
             if "runners" in msg.payload:
+                print(msg.payload["runners"])
                 self.set_watchdog_state(
                     msg.sender_id, msg.payload["runners"], msg.last_seen)
 
@@ -373,7 +374,7 @@ class master:
 
         #results = []
         #rule_exit_code = 0
-        sql = "SELECT watchdogs.uuid FROM  watchdogs LEFT OUTER JOIN runners ON watchdogs.uuid=runners.watchdog_uuid ORDER BY COUNT( DISTINCT runners.uuid) DESC LIMIT 1"
+        sql = "SELECT watchdogs.uuid FROM  watchdogs LEFT OUTER JOIN runners ON watchdogs.uuid=runners.watchdog_uuid WHERE watchdogs.last_seen >=unix_timestamp()-4 ORDER BY COUNT( DISTINCT runners.uuid) DESC LIMIT 1"
         self.rules.mycursor.execute(sql)
 
         res = [dict((self.rules.mycursor.description[i][0], value)

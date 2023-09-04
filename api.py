@@ -15,6 +15,7 @@ app = FastAPI()
 redis_server = r.comms
 pubsub = redis_server.pubsub()
 subscribe_key = r.receiving_topic
+redis_server.flushdb()
 pubsub.psubscribe(**{subscribe_key: r.event_handler})
 pubsub.run_in_thread(sleep_time=.01)
 
