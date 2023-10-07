@@ -253,6 +253,8 @@ class master:
         self.mydb.autocommit = True
         self.mycursor = self.mydb.cursor()
         self.user = "11111"
+        self.mycursor.execute('TRUNCATE TABLE watchdogs')
+        self.mydb.commit()
 
     def event_handler(self, raw_message):
 
@@ -280,9 +282,10 @@ class master:
         self.mydb.commit()
 
         for runner in runners:
+            print(runner)
             sql = "INSERT INTO runners (uuid, watchdog_uuid, pid, last_seen, state, payload, last_modified_user_uuid) VALUES (%s,%s,%s,%s,%s,%s,%s)"
-            val = (runner["id"], id, runner["pid"],
-                   runner["last_seen"], runner["state"], json.dumps(runner["payload"]), self.user)
+            val = (runner[0], id, runner[1],
+                   runner[2], runner[3], json.dumps(runner[4]), self.user)
             self.mycursor.execute(sql, val)
             self.mydb.commit()
         # try:
@@ -340,7 +343,8 @@ class master:
                 c = self.get_result(runner_id)
                 if c:
                     chk = True
-                    return(c)
+
+                    return(json.loads(c["payload"]))
 
     def evaluate_rule(self, tf_script):
         watchdog_id = self.choose_watchdog()
@@ -374,13 +378,12 @@ class master:
 
         #results = []
         #rule_exit_code = 0
-        sql = "SELECT watchdogs.uuid FROM  watchdogs LEFT OUTER JOIN runners ON watchdogs.uuid=runners.watchdog_uuid WHERE watchdogs.last_seen >=unix_timestamp()-4 ORDER BY COUNT( DISTINCT runners.uuid) DESC LIMIT 1"
-        self.rules.mycursor.execute(sql)
+        watchdogs = 0
+        while watchdogs == 0:
+            res = self.get_watchdogs()
 
-        res = [dict((self.rules.mycursor.description[i][0], value)
-                    for i, value in enumerate(row)) for row in self.rules.mycursor.fetchall()]
-        if len(res) == 0:
-            rule_exit_code = 1
+            watchdogs = len(res)
+
         return res[0]["uuid"]
 
         #min_runners = 10000
@@ -390,6 +393,14 @@ class master:
         #        min_runners = len(watchdog["runners"])
         #        min_runners_id = watchdog["id"]
         # return min_runners_id
+
+    def get_watchdogs(self):
+        sql = "SELECT watchdogs.uuid FROM  watchdogs LEFT OUTER JOIN runners ON watchdogs.uuid=runners.watchdog_uuid WHERE watchdogs.last_seen >=unix_timestamp()-4 ORDER BY COUNT( DISTINCT runners.uuid) DESC LIMIT 1"
+        self.rules.mycursor.execute(sql)
+
+        res = [dict((self.rules.mycursor.description[i][0], value)
+                    for i, value in enumerate(row)) for row in self.rules.mycursor.fetchall()]
+        return res
 
     def parse_message(self, msg_obj):
         msg = Message(sender_id=msg_obj["sender"]["id"],
