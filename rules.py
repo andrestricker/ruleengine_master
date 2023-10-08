@@ -276,14 +276,14 @@ class master:
         self.mycursor.execute(sql, val)
         self.mydb.commit()
 
-        sql = "DELETE FROM runners WHERE watchdog_uuid='"+id+"'"
+        #sql = "DELETE FROM runners WHERE watchdog_uuid='"+id+"'"
 
-        self.mycursor.execute(sql)
-        self.mydb.commit()
+        # self.mycursor.execute(sql)
+        # self.mydb.commit()
 
         for runner in runners:
             print(runner)
-            sql = "INSERT INTO runners (uuid, watchdog_uuid, pid, last_seen, state, payload, last_modified_user_uuid) VALUES (%s,%s,%s,%s,%s,%s,%s)"
+            sql = "REPLACE INTO runners (uuid, watchdog_uuid, pid, last_seen, state, payload, last_modified_user_uuid) VALUES (%s,%s,%s,%s,%s,%s,%s)"
             val = (runner[0], id, runner[1],
                    runner[2], runner[3], json.dumps(runner[4]), self.user)
             self.mycursor.execute(sql, val)
@@ -317,17 +317,17 @@ class master:
             expected_output = json.loads(test["expected_output"])
             input_data = json.loads(test["input_data"])
             res2 = self.execute_rule(id, input_data)
-
-            result = res2["payload"]["rule_result"][0]["result"]
+            print(res2)
+            result = res2["rule_result"][0]["result"]
             results.append({"input": input_data, "expected_result": expected_output,
                            "actual_result": result, "passed": result == expected_output})
 
         res = {"rule_exit_code": rule_exit_code, "results": results}
         return res
 
-    def execute_rule(self, id, data):
+    def execute_rule(self, rule_uuid, data):
         try:
-            ru = self.rules.read_rule(id)
+            ru = self.rules.read_rule(rule_uuid)
         except Exception as e:
             return(str(e))
         time.sleep(1)
@@ -337,7 +337,7 @@ class master:
         except Exception as e:
             return(str(e))
         else:
-            runner_id = self.evaluate_rule(tf_script)
+            runner_id = self.evaluate_rule(tf_script, rule_uuid)
             chk = False
             while not chk:
                 c = self.get_result(runner_id)
@@ -346,13 +346,13 @@ class master:
 
                     return(json.loads(c["payload"]))
 
-    def evaluate_rule(self, tf_script):
+    def evaluate_rule(self, tf_script, rule_uuid):
         watchdog_id = self.choose_watchdog()
-        runner_uuid = "runner_"+str(uuid.uuid4())
+        runner_uuid = str(uuid.uuid4())
         print("starting runner:", runner_uuid)
         print("watchdog id:",  watchdog_id)
         self.comms.publish(watchdog_id, json.dumps({
-                           "sender": {"type": "master"}, "command": "start_runner", "data": {"uuid": runner_uuid, "script": tf_script}}))
+                           "sender": {"type": "master"}, "command": "start_runner", "data": {"rule_uuid": rule_uuid, "uuid": runner_uuid, "script": tf_script}}))
         return runner_uuid
 
     def get_result(self, runner_id):
@@ -440,13 +440,13 @@ class rules:
         else:
             raise ValueError("Not a valid JSON list")
 
-    def build_tf_script(self, input_data, config_data, rule, template_file=config["Templates"]["default_template"], template_folder=config["Templates"]["default_folder"]):
+    def build_tf_script(self, input_data, config_data, rule, template_file=config["Templates"]["default_template"]):
         try:
             self.check_rule_input(json.dumps(input_data))
         except:
             raise
         environment = Environment(loader=FileSystemLoader(
-            template_folder + "/"))
+            config["Templates"]["default_folder"] + "/"))
         template = environment.get_template(template_file)
         tf_script = template.render(
             input_data=json.dumps(input_data),

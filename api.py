@@ -39,7 +39,7 @@ async def get_rules():
 
 @app.post("/rule/execute")
 async def execute_rule(id: str = Query(title="UUID of the rule", description="UUID of the rule - must exist"), payload: dict = Body(...)):
-    return(r.execute_rule(id=id, data=payload["data"]))
+    return(r.execute_rule(rule_uuid=id, data=payload["data"]))
 
 
 @app.get("/rule/test")
