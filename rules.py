@@ -471,7 +471,36 @@ class rules:
         return True
 
     def get_rule_list(self, is_valid=1, is_deleted=0):
-        sql = "SELECT * FROM rules where is_valid={is_valid} and is_deleted={is_deleted}".format(
+        sql = sql = """
+            SELECT 
+	            r.uuid, 
+	            r.customer_uuid,
+	            r.name AS rule_name,
+	            r.description,
+	            r.rules,
+	            c.config,
+	            c.name AS config_name,
+	            r.config_uuid,
+	            r.is_valid,
+	            r.is_deleted,
+	            r.last_modified_datetime,
+	            r.last_modified_user_uuid
+            FROM
+	            rules r LEFT OUTER JOIN
+	            configs c ON r.config_uuid=c.uuid
+            WHERE
+                r.is_valid = {is_valid} AND
+                r.is_deleted = {is_deleted} AND
+	            r.is_valid=1 AND 
+	            r.is_deleted=0 AND
+    	        NOW() BETWEEN r.valid_from AND r.valid_until AND
+	            if(c.uuid IS NOT NULL, 
+		            c.is_valid=1 AND
+		            c.is_deleted=0 AND
+		            NOW() BETWEEN c.valid_from AND c.valid_until, 1=1
+                )
+                
+        """.format(
             is_valid=is_valid, is_deleted=is_deleted)
         self.mycursor.execute(sql)
 
@@ -481,7 +510,35 @@ class rules:
         return res
 
     def read_rule(self, uuid):
-        sql = "SELECT * FROM rules WHERE uuid='{0}'".format(uuid)
+        sql = """
+            SELECT 
+	            r.uuid, 
+	            r.customer_uuid,
+	            r.name AS rule_name,
+	            r.description,
+	            r.rules,
+	            c.config,
+	            c.name AS config_name,
+	            r.config_uuid,
+	            r.is_valid,
+	            r.is_deleted,
+	            r.last_modified_datetime,
+	            r.last_modified_user_uuid
+            FROM
+	            rules r LEFT OUTER JOIN
+	            configs c ON r.config_uuid=c.uuid
+            WHERE
+	            r.is_valid=1 AND 
+	            r.is_deleted=0 AND
+    	        NOW() BETWEEN r.valid_from AND r.valid_until AND
+	            if(c.uuid IS NOT NULL, 
+		            c.is_valid=1 AND
+		            c.is_deleted=0 AND
+		            NOW() BETWEEN c.valid_from AND c.valid_until, 1=1
+                )
+                AND r.uuid='{}'
+        """.format(uuid)
+        #sql = "SELECT * FROM rules WHERE uuid='{0}'".format(uuid)
         self.mycursor.execute(sql)
 
         res = [dict((self.mycursor.description[i][0], value)
