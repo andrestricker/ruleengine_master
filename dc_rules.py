@@ -471,7 +471,7 @@ class rules:
         return True
 
     def get_rule_list(self, is_valid=1, is_deleted=0):
-        sql = sql = """
+        sql = """
             SELECT 
 	            r.uuid, 
 	            r.customer_uuid,
@@ -495,9 +495,9 @@ class rules:
 	            r.is_deleted=0 AND
     	        NOW() BETWEEN r.valid_from AND r.valid_until AND
 	            if(c.uuid IS NOT NULL, 
-		            c.is_valid=1 AND
+		            c.is_current=1 AND
 		            c.is_deleted=0 AND
-		            NOW() BETWEEN c.valid_from AND c.valid_until, 1=1
+		            NOW() BETWEEN c.valid_from AND c.valid_until
                 )
                 
         """.format(
@@ -532,7 +532,7 @@ class rules:
 	            r.is_deleted=0 AND
     	        NOW() BETWEEN r.valid_from AND r.valid_until AND
 	            if(c.uuid IS NOT NULL, 
-		            c.is_valid=1 AND
+		            c.is_current=1 AND
 		            c.is_deleted=0 AND
 		            NOW() BETWEEN c.valid_from AND c.valid_until, 1=1
                 )
