@@ -317,8 +317,9 @@ class master:
             expected_output = json.loads(test["expected_output"])
             input_data = json.loads(test["input_data"])
             res2 = self.execute_rule(id, input_data)
-            print(res2)
-            result = res2["rule_result"][0]["result"]
+            print("-----input:----", test["input_data"])
+            print("-----result:-----", res2)
+            result = res2["matches"][0]["match"]
             results.append({"input": input_data, "expected_result": expected_output,
                            "actual_result": result, "passed": result == expected_output})
 
