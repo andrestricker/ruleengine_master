@@ -5,13 +5,14 @@ import dc_rules
 import dc_configs
 import dc_users
 import dc_admin
+import dc_system
 from dateutil.parser import parse
 import time
 import json
 from pydantic import BaseModel
 
 a = dc_admin.admin()
-sys = dc_rules.system()
+sys = dc_system.system()
 r = dc_rules.master()
 rr = dc_rules.rules()
 c = dc_configs.configs()
