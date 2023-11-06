@@ -15,8 +15,8 @@ config.read('config.ini')
 class system:
     def __init__(self):
         self.rules = dc_rules.rules()
-        self.comms = redis.Redis(host=self.rules.host, port=self.rules.port,
-                                 db=self.rules.db, decode_responses=True)
+        self.comms = redis.Redis(host=config["Redis"]["host"], port=int(config["Redis"]["port"]),
+                                 db=int(config["Redis"]["db"]), decode_responses=True)
 
         self.mydb = mariadb.connect(
             host=config["DB"]["host"],

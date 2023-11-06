@@ -37,9 +37,12 @@ class Message:
 class master:
     def __init__(self):
 
-        self.rules = rules()
-        self.comms = redis.Redis(host=self.rules.host, port=self.rules.port,
-                                 db=self.rules.db, decode_responses=True)
+        #self.rules = rules()
+        self.host = config["Redis"]["host"]
+        self.port = int(config["Redis"]["port"])
+        self.db = int(config["Redis"]["db"])
+        self.comms = redis.Redis(host=self.host, port=self.port,
+                                 db=self.db, decode_responses=True)
 
         self.mydb = mariadb.connect(
             host=config["DB"]["host"],
@@ -88,29 +91,64 @@ class master:
                    runner[2], runner[3], json.dumps(runner[4]), self.user)
             self.mycursor.execute(sql, val)
             self.mydb.commit()
-        # try:
-        #    c = self.get_watchdog_index(id)
-        # except ValueError:
-        #    self.watchdog_list.append(
-        #        {"id": id, "runners": runners, "last_seen": last_seen})
-        # else:
-        #    self.watchdog_list[c]["id"] = id
-        #    self.watchdog_list[c]["runners"] = runners
 
-    # def get_watchdog_index(self, id):
-    #    for c, watchdog in enumerate(self.watchdog_list):
-    #        if watchdog["id"] == id:
-    #            return c
-    #    raise ValueError("Watchdog not found")
 
+
+    def choose_watchdog(self):
+        watchdogs = 0
+        while watchdogs == 0:
+            res = self.get_watchdogs()
+
+            watchdogs = len(res)
+
+        return res[0]["uuid"]
+
+   
+
+    def get_watchdogs(self):
+        sql = "SELECT watchdogs.uuid FROM  watchdogs LEFT OUTER JOIN runners ON watchdogs.uuid=runners.watchdog_uuid WHERE watchdogs.last_seen >=unix_timestamp()-4 ORDER BY COUNT( DISTINCT runners.uuid) DESC LIMIT 1"
+        self.mycursor.execute(sql)
+
+        res = [dict((self.mycursor.description[i][0], value)
+                    for i, value in enumerate(row)) for row in self.mycursor.fetchall()]
+        return res
+
+    def parse_message(self, msg_obj):
+        msg = Message(sender_id=msg_obj["sender"]["id"],
+                      sendertype=msg_obj["sender"]["type"],
+                      messagetype=msg_obj["messagetype"],
+                      payload=msg_obj["payload"],
+                      last_seen=time.time())
+        return msg
+
+
+class rules:
+    def __init__(self):
+        self.user = "andre"
+        if config["Generic"]["db_engine"] == "MariaDB":
+            self.mydb = mariadb.connect(
+                host=config["DB"]["host"],
+                user=config["DB"]["user"],
+                password=config["DB"]["password"],
+                database=config["DB"]["database"]
+            )
+
+        self.comms = redis.Redis(host=config["Redis"]["host"], port=int(config["Redis"]["port"]),
+                                 db=int(config["Redis"]["db"]), decode_responses=True)
+        self.mydb.autocommit = True
+        self.mycursor = self.mydb.cursor()
+        self.master = master()
+
+
+    
     def test_rule(self, id):
         results = []
         rule_exit_code = 0
-        sql = "SELECT * FROM rule_tests where is_valid=1 and is_deleted=0 and rule_uuid='"+id+"'"
-        self.rules.mycursor.execute(sql)
+        sql = "SELECT * FROM rule_tests where is_valid=1 and is_deleted=0 and rule_uuid=%(id)s"
+        self.mycursor.execute(sql, {'id':id})
 
-        res = [dict((self.rules.mycursor.description[i][0], value)
-                    for i, value in enumerate(row)) for row in self.rules.mycursor.fetchall()]
+        res = [dict((self.mycursor.description[i][0], value)
+                    for i, value in enumerate(row)) for row in self.mycursor.fetchall()]
         if len(res) == 0:
             rule_exit_code = 1
         for test in res:
@@ -126,19 +164,19 @@ class master:
         res = {"rule_exit_code": rule_exit_code, "results": results}
         return res
 
-    def execute_rule(self, rule_uuid, data):
+    def execute(self, rule_uuid, data):
         try:
-            ru = self.rules.read_rule(rule_uuid)
+            ru = self.read(rule_uuid)
         except Exception as e:
             return(str(e))
-        time.sleep(1)
+        #time.sleep(1)
         try:
-            tf_script = self.rules.build_tf_script(
+            tf_script = self.build_tf_script(
                 data, ru["config"], ru["rules"])
         except Exception as e:
             return(str(e))
         else:
-            runner_id = self.evaluate_rule(tf_script, rule_uuid)
+            runner_id = self.evaluate(tf_script, rule_uuid)
             chk = False
             while not chk:
                 c = self.get_result(runner_id)
@@ -147,8 +185,8 @@ class master:
 
                     return(json.loads(c["payload"]))
 
-    def evaluate_rule(self, tf_script, rule_uuid):
-        watchdog_id = self.choose_watchdog()
+    def evaluate(self, tf_script, rule_uuid):
+        watchdog_id = self.master.choose_watchdog()
         runner_uuid = str(uuid.uuid4())
         print("starting runner:", runner_uuid)
         print("watchdog id:",  watchdog_id)
@@ -160,10 +198,10 @@ class master:
         result = {}
         sql = "SELECT * from runners where uuid='" + \
             runner_id+"' and state ='finished'"
-        self.rules.mycursor.execute(sql)
+        self.mycursor.execute(sql)
 
-        res = [dict((self.rules.mycursor.description[i][0], value)
-                    for i, value in enumerate(row)) for row in self.rules.mycursor.fetchall()]
+        res = [dict((self.mycursor.description[i][0], value)
+                    for i, value in enumerate(row)) for row in self.mycursor.fetchall()]
         if len(res) == 0:
             return False
         result["uuid"] = res[0]["uuid"]
@@ -174,61 +212,6 @@ class master:
         result["payload"] = json.loads(res[0]["payload"])
 
         return result
-
-    def choose_watchdog(self):
-
-        #results = []
-        #rule_exit_code = 0
-        watchdogs = 0
-        while watchdogs == 0:
-            res = self.get_watchdogs()
-
-            watchdogs = len(res)
-
-        return res[0]["uuid"]
-
-        #min_runners = 10000
-        #min_runners_id = ""
-        # for watchdog in self.watchdog_list:
-        #    if len(watchdog["runners"]) < min_runners:
-        #        min_runners = len(watchdog["runners"])
-        #        min_runners_id = watchdog["id"]
-        # return min_runners_id
-
-    def get_watchdogs(self):
-        sql = "SELECT watchdogs.uuid FROM  watchdogs LEFT OUTER JOIN runners ON watchdogs.uuid=runners.watchdog_uuid WHERE watchdogs.last_seen >=unix_timestamp()-4 ORDER BY COUNT( DISTINCT runners.uuid) DESC LIMIT 1"
-        self.rules.mycursor.execute(sql)
-
-        res = [dict((self.rules.mycursor.description[i][0], value)
-                    for i, value in enumerate(row)) for row in self.rules.mycursor.fetchall()]
-        return res
-
-    def parse_message(self, msg_obj):
-        msg = Message(sender_id=msg_obj["sender"]["id"],
-                      sendertype=msg_obj["sender"]["type"],
-                      messagetype=msg_obj["messagetype"],
-                      payload=msg_obj["payload"],
-                      last_seen=time.time())
-        return msg
-
-
-class rules:
-
-    def __init__(self):
-        self.user = "andre"
-        if config["Generic"]["db_engine"] == "MariaDB":
-            self.mydb = mariadb.connect(
-                host=config["DB"]["host"],
-                user=config["DB"]["user"],
-                password=config["DB"]["password"],
-                database=config["DB"]["database"]
-            )
-
-        self.host = config["Redis"]["host"]
-        self.port = int(config["Redis"]["port"])
-        self.db = int(config["Redis"]["db"])
-        self.mydb.autocommit = True
-        self.mycursor = self.mydb.cursor()
 
     def check_rule_input(self, json_string):
         print(json_string)
@@ -271,7 +254,7 @@ class rules:
         df.to_excel(filename, sheet_name=sheetname, index=False)
         return True
 
-    def get_rule_list(self, is_valid=1, is_deleted=0):
+    def get_list(self, is_valid=1, is_deleted=0):
         sql = """
             SELECT 
 	            r.uuid, 
@@ -290,8 +273,8 @@ class rules:
 	            rules r LEFT OUTER JOIN
 	            configs c ON r.config_uuid=c.uuid
             WHERE
-                r.is_valid = {is_valid} AND
-                r.is_deleted = {is_deleted} AND
+                r.is_valid = %(is_valid)i AND
+                r.is_deleted = %(is_deleted)i AND
 	            r.is_valid=1 AND 
 	            r.is_deleted=0 AND
     	        NOW() BETWEEN r.valid_from AND r.valid_until AND
@@ -301,16 +284,15 @@ class rules:
 		            NOW() BETWEEN c.valid_from AND c.valid_until
                 )
                 
-        """.format(
-            is_valid=is_valid, is_deleted=is_deleted)
-        self.mycursor.execute(sql)
+        """
+        self.mycursor.execute(sql, {'is_deleted':is_deleted, 'is_valid':is_valid})
 
         res = [dict((self.mycursor.description[i][0], value)
                     for i, value in enumerate(row)) for row in self.mycursor.fetchall()]
 
         return res
 
-    def read_rule(self, uuid):
+    def read(self, uuid):
         sql = """
             SELECT 
 	            r.uuid, 
@@ -337,10 +319,10 @@ class rules:
 		            c.is_deleted=0 AND
 		            NOW() BETWEEN c.valid_from AND c.valid_until, 1=1
                 )
-                AND r.uuid='{}'
-        """.format(uuid)
+                AND r.uuid=%(uuid)s
+        """
         #sql = "SELECT * FROM rules WHERE uuid='{0}'".format(uuid)
-        self.mycursor.execute(sql)
+        self.mycursor.execute(sql, {'uuid': uuid})
 
         res = [dict((self.mycursor.description[i][0], value)
                     for i, value in enumerate(row)) for row in self.mycursor.fetchall()]
@@ -348,19 +330,50 @@ class rules:
             raise ValueError('Rule UUID does not exist')
         return res[0]
 
-    def set_rule_valid_flag(self, uuid, flag):
-        sql = "UPDATE RULES SET is_valid=%s, last_modified_userid = %s WHERE uuid=%s"
-        val = (flag, self.user, uuid)
-
-        self.mycursor.execute(sql, val)
+    def set_valid_flag(self, uuid, flag):
+        sql = """ 
+            UPDATE 
+                RULES 
+            SET 
+                is_valid=%(is_valid)i, 
+                last_modified_userid = %(last_modified_userid)s 
+            WHERE 
+                uuid=%(uuid)s"""
+        
+        self.mycursor.execute(sql, {'is_valid':flag, 'last_modified_userid':self.user, 'uuid':uuid})
         self.mydb.commit()
 
-    def save_rule(self, uid, customer_id, name, description, rules, data, is_valid, valid_from, valid_until, last_modified_userid, is_deleted):
+    def save(self, uid, customer_id, name, description, rules, data, is_valid, valid_from, valid_until, last_modified_userid, is_deleted):
         if uid == 0:
             uid = "rule_"+str(uuid.uuid4())
 
         # self.set_rule_valid_flag(uid, 0)
-        sql = "INSERT INTO rules (uuid, customer_id, name, description, rules, config, is_valid, valid_from, valid_until, last_modified_userid, is_deleted) VALUES (%s, %s, %s,%s, %s,%s, %s, %s , %s,%s, %s)"
+        sql = """
+            INSERT INTO rules (
+                uuid, 
+                customer_id, 
+                name, 
+                description, 
+                rules, config, 
+                is_valid, 
+                valid_from, 
+                valid_until, 
+                last_modified_userid, 
+                is_deleted
+            ) 
+            VALUES (
+                    %s, 
+                    %s, 
+                    %s,
+                    %s,
+                    %s,
+                    %s, 
+                    %s, 
+                    %s, 
+                    %s,
+                    %s, 
+                    %s)
+            """
         val = (uid, customer_id, name, description,
                rules, json.dumps(data, default=str),  is_valid, valid_from, valid_until, last_modified_userid, is_deleted)
         self.mycursor.execute(sql, val)

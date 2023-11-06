@@ -66,17 +66,17 @@ async def write_config(id: str = None, payload: dict = Body(...)):
 
 @app.get("/rules/")
 async def get_rules():
-    return rr.get_rule_list()
+    return rr.get_list()
 
 
 @app.post("/rule/execute")
 async def execute_rule(id: str = Query(title="UUID of the rule", description="UUID  of the rule - must exist"), payload: dict = Body(...)):
-    return(r.execute_rule(rule_uuid=id, data=payload["data"]))
+    return(rr.execute(rule_uuid=id, data=payload["data"]))
 
 
 @app.get("/rule/test")
 async def test_rule(id: str = Query(title="UUID of the rule", description="UUID of the rule - must exist")):
-    return(r.test_rule(id))
+    return(rr.test(id))
 
 
 @app.post("/user/auth")
